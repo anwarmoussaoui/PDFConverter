@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Excel to PDF</title>
+</head>
+<body>
+<h1>Upload Excel File to Convert to PDF</h1>
+<form action="/upload" method="post" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".xlsx" required />
+    <button type="submit">Convert to PDF</button>
+</form>
+</body>
+</html>
