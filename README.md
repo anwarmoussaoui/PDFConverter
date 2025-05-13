@@ -22,8 +22,4 @@ PDF rendering (e.g. iText, Flying Saucer, or similar)
 Thymeleaf (if there's a frontend)
 🛠 Requirements
 
-Java 17+ (or the version you used)
-Maven
-📝 License
-
-MIT License
+Java 17+ 
