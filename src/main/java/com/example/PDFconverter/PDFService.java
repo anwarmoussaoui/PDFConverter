@@ -35,6 +35,8 @@ public class PDFService {
             int val = jsBuffer.getArrayElement(i).asInt();
             byteArray[i] = (byte) (val & 0xFF);
         }
+        pdfpool.release(context);
+        excelizePool.release(context1);
         return byteArray;
     }
     public void fromPDF(byte [] pdfBytes){

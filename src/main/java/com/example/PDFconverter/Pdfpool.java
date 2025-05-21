@@ -11,13 +11,16 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 @Component
 
 public class Pdfpool {
+    private final BlockingQueue<Context> contexts;
 
-    private final Context context;
     private static Map<String, String> getLanguageOptions() {
+
         Map<String, String> options = new HashMap<>();
 
         options.put("js.ecmascript-version", "2023");
@@ -31,31 +34,41 @@ public class Pdfpool {
         return options;
     }
     public Pdfpool() throws IOException {
-        Context context = Context.newBuilder("js", "wasm")
-                .allowHostAccess(HostAccess.ALL)
-                .allowIO(true)
-                .option("engine.WarnInterpreterOnly", "false")
-                .option("js.esm-eval-returns-exports", "true")
-                .option("js.text-encoding", "true")
-                .option("js.unhandled-rejections", "throw")
-                .allowAllAccess(true)
-                .allowHostClassLookup(s -> true)
-                .options(getLanguageOptions())
-                .build();
+        int maxThreads = Runtime.getRuntime().availableProcessors();
+        contexts = new LinkedBlockingQueue<>(maxThreads);
+        for (int i = 0; i < maxThreads; i++) {
+            Context context = Context.newBuilder("js", "wasm")
+                    .allowHostAccess(HostAccess.ALL)
+                    .allowIO(true)
+                    .option("engine.WarnInterpreterOnly", "false")
+                    .option("js.esm-eval-returns-exports", "true")
+                    .option("js.text-encoding", "true")
+                    .option("js.unhandled-rejections", "throw")
+                    .allowAllAccess(true)
+                    .allowHostClassLookup(s -> true)
+                    .options(getLanguageOptions())
+                    .build();
 
-        byte[] wasmfile = Files.readAllBytes(Paths.get("./src/main/resources/mupdf-wasm.wasm"));
-        context.eval(Source.newBuilder("js", Pdfpool.class.getResource("/polyfills.js"))
-                .mimeType("application/javascript+module")
-                .build());
-        context.getBindings("js").putMember("wasmBinary", wasmfile);
-        context.eval(Source.newBuilder("js", Pdfpool.class.getResource("/mud.js"))
-                .mimeType("application/javascript+module")
-                .build());
-
-        this.context = context;
+            byte[] wasmfile = Files.readAllBytes(Paths.get("./src/main/resources/mupdf-wasm.wasm"));
+            context.eval(Source.newBuilder("js", Pdfpool.class.getResource("/polyfills.js"))
+                    .mimeType("application/javascript+module")
+                    .build());
+            context.getBindings("js").putMember("wasmBinary", wasmfile);
+            context.eval(Source.newBuilder("js", Pdfpool.class.getResource("/mud.js"))
+                    .mimeType("application/javascript+module")
+                    .build());
+            contexts.add(context);
+        }
     }
 
     public Context getContext() {
-        return context;
+        try {
+            return contexts.take();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+    void release(Context context) {
+        contexts.add(context);
     }
 }

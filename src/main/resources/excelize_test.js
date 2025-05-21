@@ -21,6 +21,7 @@ function readExcel() {
 
         // Get all rows from Sheet1
         const ret2 = f.GetRows('Sheet1');
+        console.log(String(f.GetSheetName(0)));
         if (ret2.error) {
           console.error(ret2.error);
           reject(ret2.error);  // Reject promise in case of error

@@ -11,22 +11,26 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 @Component
 
 public class ExcelizePool {
-    private final Context context;
+    //private final Context context;
+    private final BlockingQueue<Context> contexts;
 
     public ExcelizePool() throws IOException {
+        int maxThreads = Runtime.getRuntime().availableProcessors();
+        contexts = new LinkedBlockingQueue<>(maxThreads);
+        System.out.println(maxThreads);
         final String INTERNAL_MODULE_URI_HEADER = "oracle:/mle/";
 
         // Use regular file paths
         byte[] excelizeWasmBytes = Files.readAllBytes(Paths.get("src/main/resources/excelize.wasm"));
         String test = Files.readString(Paths.get("src/main/resources/excelize_test.js"), StandardCharsets.UTF_8);
         String prep = Files.readString(Paths.get("src/main/resources/excelize_prep.js"), StandardCharsets.UTF_8);
-        String encodingIdxs = Files.readString(Paths.get("src/main/resources/encoding-indexes.js"), StandardCharsets.UTF_8);
-        String encoding = Files.readString(Paths.get("src/main/resources/encoding.js"), StandardCharsets.UTF_8);
-        String excelizeLib = Files.readString(Paths.get("src/main/resources/excelize_m.js"), StandardCharsets.UTF_8);
+       String excelizeLib = Files.readString(Paths.get("src/main/resources/excelize_m.js"), StandardCharsets.UTF_8);
 
         System.out.println("Executing excelize read...");
 
@@ -38,6 +42,7 @@ public class ExcelizePool {
         options.put("js.commonjs-require", "true");
         options.put("js.esm-eval-returns-exports", "true");
         options.put("js.unhandled-rejections", "throw");
+        options.put("js.text-encoding","true");
         options.put("js.commonjs-require-cwd", Paths.get("./").toAbsolutePath().toString());
 
         Map<String, String> engineOptions = new HashMap<>();
@@ -45,46 +50,52 @@ public class ExcelizePool {
         engineOptions.put("engine.WarnInterpreterOnly", "false");
         engineOptions.put("engine.MultiTier", "true");
         engineOptions.put("engine.Mode", "throughput");
+        for (int i = 0; i < maxThreads; i++) {
 
-        Engine engine = Engine.newBuilder("js", "wasm")
-                .allowExperimentalOptions(true)
-                .options(engineOptions)
-                .build();
+            Engine engine = Engine.newBuilder("js", "wasm")
+                    .allowExperimentalOptions(true)
+                    .options(engineOptions)
+                    .build();
 
-        // Build the context
-        Context context = Context.newBuilder("js", "wasm")
-                .engine(engine)
-                .allowIO(IOAccess.ALL)
-                .allowAllAccess(true)
-                .allowPolyglotAccess(PolyglotAccess.ALL)
-                .allowExperimentalOptions(true)
-                .allowHostClassLookup(s -> true)
-                .allowHostAccess(HostAccess.ALL)
-                .options(options)
-                .build();
+            // Build the context
+            Context context = Context.newBuilder("js", "wasm")
+                    .engine(engine)
+                    .allowIO(IOAccess.ALL)
+                    .allowAllAccess(true)
+                    .allowPolyglotAccess(PolyglotAccess.ALL)
+                    .allowExperimentalOptions(true)
+                    .allowHostClassLookup(s -> true)
+                    .allowHostAccess(HostAccess.ALL)
+                    .options(options)
+                    .build();
 
-        // Evaluate helper JS libraries
-        context.eval(Source.newBuilder("js", encodingIdxs, "encoding-indexes.js").build());
-        context.eval(Source.newBuilder("js", encoding, "encoding.js").build());
-        context.eval(Source.newBuilder("js", prep, "prep.js").build());
+            // Evaluate helper JS libraries
+            context.eval(Source.newBuilder("js", prep, "prep.js").build());
 
-        // Evaluate the Excelize WASM module
-        Source excelizeModule = Source.newBuilder("js", excelizeLib, "excelize.mjs")
-                .mimeType("application/javascript+module")
-                .uri(URI.create(INTERNAL_MODULE_URI_HEADER + "excelize.mjs"))
-                .build();
-        Value excelizeMod = context.eval(excelizeModule);
-        context.getPolyglotBindings().putMember("excelize", excelizeMod);
-        context.getBindings("js").putMember("wasmBytes", excelizeWasmBytes);
+            // Evaluate the Excelize WASM module
+            Source excelizeModule = Source.newBuilder("js", excelizeLib, "excelize.mjs")
+                    .mimeType("application/javascript+module")
+                    .uri(URI.create(INTERNAL_MODULE_URI_HEADER + "excelize.mjs"))
+                    .build();
+            Value excelizeMod = context.eval(excelizeModule);
+            context.getPolyglotBindings().putMember("excelize", excelizeMod);
+            context.getBindings("js").putMember("wasmBytes", excelizeWasmBytes);
 
-        // Evaluate test script
-        context.eval(Source.newBuilder("js", test, "excelize_test.js").build());
+            // Evaluate test script
+            context.eval(Source.newBuilder("js", test, "excelize_test.js").build());
+            contexts.add(context);
+        }
 
-
-        this.context = context;
     }
 
     public Context getContext() {
-        return context;
+        try {
+            return contexts.take();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+    void release(Context context) {
+        contexts.add(context);
     }
 }
